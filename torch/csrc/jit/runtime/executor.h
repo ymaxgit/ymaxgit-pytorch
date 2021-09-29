@@ -24,6 +24,8 @@ struct ExecutionPlan {
     return false;
   }
 
+  virtual ~ExecutionPlan() = default;
+
   Code code;
   std::shared_ptr<Graph> graph;
 };
