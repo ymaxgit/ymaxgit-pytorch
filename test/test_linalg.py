@@ -7358,6 +7358,7 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
             r1 = fntorch(t0_full, t1, t2)
             self.assertEqual(r0, r1)
 
+    @skipMeta
     @tf32_on_and_off(0.001)
     def test_broadcast_batched_matmul(self, device):
         n_dim = random.randint(1, 8)
@@ -7409,7 +7410,7 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
                         for r in (rhs, rhs_expanded):
                             l_matmul_fn = l.matmul
                             result = maybe_squeeze_result(l, r, l_matmul_fn(r))
-                            self.assertEqual(truth, result)
+                            self.assertEqual(truth, result, f"{lhs.size()} x {rhs.size()}")
                             # test torch.matmul function as well
                             torch_result = maybe_squeeze_result(l, r, torch.matmul(l, r))
                             self.assertEqual(truth, torch_result)
