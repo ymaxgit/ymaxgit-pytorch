@@ -23,9 +23,8 @@
 #include "lazy_tensor_core/csrc/ops/leaky_relu.h"
 #include "lazy_tensor_core/csrc/ops/leaky_relu_backward.h"
 #include "lazy_tensor_core/csrc/ops/ltc_ops.h"
-#include "lazy_tensor_core/csrc/ops/nll_loss_backward.h"
-#include "lazy_tensor_core/csrc/ops/nll_loss_forward.h"
 #include "lazy_tensor_core/csrc/ops/permute.h"
+#include "lazy_tensor_core/csrc/reduction.h"
 #include "lazy_tensor_core/csrc/ops/repeat.h"
 #include "lazy_tensor_core/csrc/ops/scalar.h"
 #include "lazy_tensor_core/csrc/ops/select.h"
@@ -127,19 +126,11 @@ class TSNodeLowering : public NodeLowering {
         return InferMm(node);
       }
       case at::aten::leaky_relu_backward:
-      case at::aten::nll_loss_backward: {
-        const ir::Output& input = node->operand(1);
-        return input.shape();
-      }
       case at::aten::native_batch_norm: {
         return InferBatchNorm(node);
       }
       case at::aten::native_batch_norm_backward: {
         return InferBatchNormBackward(node);
-      }
-      case at::aten::nll_loss_forward: {
-        return InferNllLossForward(ir::NodeCast<ir::ops::NllLossForward>(
-              node, ir::OpKind(at::aten::nll_loss_forward)));
       }
       case at::aten::permute: {
         auto permute =
@@ -319,15 +310,6 @@ class TSNodeLowering : public NodeLowering {
       return LowerLeakyReluBackward(ir::NodeCast<ir::ops::LeakyReluBackward>(
           node, ir::OpKind(at::aten::leaky_relu_backward)));
     }
-    if (node->op().op == at::aten::nll_loss_backward) {
-      return LowerNllLossBackward(
-          ir::NodeCast<ir::ops::NllLossBackward>(
-              node, ir::OpKind(at::aten::nll_loss_backward)));
-    }
-    if (node->op().op == at::aten::nll_loss_forward) {
-      return LowerNllLossForward(ir::NodeCast<ir::ops::NllLossForward>(node,
-          ir::OpKind(at::aten::nll_loss_forward)));
-    }
     if (node->op().op == at::aten::permute) {
       return LowerPermute(
           ir::NodeCast<ir::ops::Permute>(node, ir::OpKind(at::aten::permute)));
@@ -399,24 +381,6 @@ class TSNodeLowering : public NodeLowering {
     const ir::Output& weight = node->operand(2);
     return lazy_tensors::ShapeUtil::MakeTupleShape(
         {input.shape(), weight.shape(), weight.shape()});
-  }
-
-  static lazy_tensors::Shape InferNllLossForward(
-      const ir::ops::NllLossForward* node) {
-    static constexpr size_t kDimension2D = 2;
-
-    auto& inputShape = node->operand(0).shape();
-    auto scalarShape = lazy_tensors::Shape(inputShape.element_type(), {});
-    if (node->reduction() == ReductionMode::kNone &&
-        inputShape.dimensions_size() == kDimension2D) {
-      auto batchSize = inputShape.dimensions(0);
-      return lazy_tensors::ShapeUtil::MakeTupleShape(
-          {lazy_tensors::Shape(inputShape.element_type(), {batchSize})
-              , std::move(scalarShape)});
-    }
-
-    return lazy_tensors::ShapeUtil::MakeTupleShape({
-        scalarShape, std::move(scalarShape)});
   }
 
   static lazy_tensors::Shape InferBmm(const ir::Node* node) {
@@ -885,57 +849,6 @@ class TSNodeLowering : public NodeLowering {
         return at::Reduction::Sum;
     }
     LTC_ERROR() << "Unknown reduction mode: " << static_cast<int64_t>(reductionMode);
-  }
-
-  TSOpVector LowerNllLossBackward(const ir::ops::NllLossBackward* node) {
-    // For TS, only weight is optional.
-    static constexpr size_t kWeightOperandsOffset = 3;
-    static constexpr size_t kWeightedOperandSize = 5;
-
-    auto& operands = node->operands();
-    LTC_CHECK_GT(operands.size(), kWeightOperandsOffset);
-
-    std::vector<torch::jit::NamedValue> arguments;
-    for (size_t i = 0; i < kWeightOperandsOffset; ++i) {
-      arguments.emplace_back(loctx()->GetOutputOp(operands[i]));
-    }
-
-    c10::optional<at::Tensor> nullArg;
-    if (operands.size() < kWeightedOperandSize) {
-      arguments.emplace_back(nullArg);
-    } else {
-      arguments.emplace_back(loctx()->GetOutputOp(operands[kWeightOperandsOffset]));
-    }
-
-    arguments.emplace_back(GetReduction(node->reduction()));
-    arguments.emplace_back(node->ignore_index());
-    arguments.emplace_back(loctx()->GetOutputOp(operands.back()));
-
-    return LowerBuiltin(node, arguments);
-  }
-
-  TSOpVector LowerNllLossForward(const ir::ops::NllLossForward* node) {
-    static constexpr size_t kWeightOperandsOffset = 2;
-
-    auto& operands = node->operands();
-    LTC_CHECK_GE(operands.size(), kWeightOperandsOffset);
-
-    std::vector<torch::jit::NamedValue> arguments;
-    for (size_t i = 0; i < kWeightOperandsOffset; ++i) {
-      arguments.emplace_back(loctx()->GetOutputOp(operands[i]));
-    }
-
-    c10::optional<at::Tensor> nullArg;
-    if (operands.size() <= kWeightOperandsOffset) {
-      arguments.emplace_back(nullArg);
-    } else {
-      arguments.emplace_back(loctx()->GetOutputOp(operands[kWeightOperandsOffset]));
-    }
-
-    arguments.emplace_back(GetReduction(node->reduction()));
-    arguments.emplace_back(node->ignore_index());
-
-    return LowerBuiltin(node, arguments);
   }
 
   TSOpVector LowerPermute(const ir::ops::Permute* node) {

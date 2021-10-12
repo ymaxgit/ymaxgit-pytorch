@@ -160,9 +160,17 @@ def gen_lazy_nativefunc_definition(func: NativeFunction, backend_index: BackendI
         if returns_length > 1:
             meta_out = """auto out_shape = CreateComputationShapeFromMetaTensors(out_meta);
     auto out_dtype = CreateDTypeFromMetaTensors(out_meta);"""
+        
+        def meta_arg(t):
+            if t in value_types:
+                if isinstance(t.type, OptionalCType):
+                    return f"{t.name}.has_value() ? c10::make_optional({t.name}->to(c10::kMeta)) : c10::nullopt"
+                else:
+                    return f"{t.name}.to(c10::kMeta)"
+            else:
+                return f"{t.name}"
 
-        meta_args = ", ".join([f"{t.name}.to(c10::kMeta)" for t in value_types] +
-                              [f"{t.name}" for t in scalar_types])
+        meta_args = ", ".join([meta_arg(t) for t in all_types])
         meta_str = f"""auto out_meta = at::meta::{schema.aten_name}({meta_args});
     {meta_out}"""
     else:
