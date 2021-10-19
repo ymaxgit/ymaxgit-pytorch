@@ -20,8 +20,8 @@ using torch::lazy::ScopePusher;
 // squeezed out.
 LazyTensor IndexAcrossDims(const LazyTensor& input, lazy_tensors::int64 dim,
                            lazy_tensors::int64 index) {
-  return tensor_aten_ops::squeeze(
-      tensor_aten_ops::slice(input, dim, index, index + 1, 1), dim);
+  return lazy_tensor_aten_ops::squeeze(
+      lazy_tensor_aten_ops::slice(input, dim, index, index + 1, 1), dim);
 }
 
 }  // namespace
@@ -55,38 +55,42 @@ LazyTensor Cross(const LazyTensor& input, const LazyTensor& other,
   LazyTensor v3 = IndexAcrossDims(other, canonical_dim, 2);
   // Compute the term for each axis.
   at::Scalar one(1);
-  LazyTensor s1 = tensor_aten_ops::sub(tensor_aten_ops::mul(u2, v3),
-                                       tensor_aten_ops::mul(u3, v2), one);
-  LazyTensor s2 = tensor_aten_ops::sub(tensor_aten_ops::mul(u3, v1),
-                                       tensor_aten_ops::mul(u1, v3), one);
-  LazyTensor s3 = tensor_aten_ops::sub(tensor_aten_ops::mul(u1, v2),
-                                       tensor_aten_ops::mul(u2, v1), one);
+  LazyTensor s1 =
+      lazy_tensor_aten_ops::sub(lazy_tensor_aten_ops::mul(u2, v3),
+                                lazy_tensor_aten_ops::mul(u3, v2), one);
+  LazyTensor s2 =
+      lazy_tensor_aten_ops::sub(lazy_tensor_aten_ops::mul(u3, v1),
+                                lazy_tensor_aten_ops::mul(u1, v3), one);
+  LazyTensor s3 =
+      lazy_tensor_aten_ops::sub(lazy_tensor_aten_ops::mul(u1, v2),
+                                lazy_tensor_aten_ops::mul(u2, v1), one);
   // Stack the terms into one result tensor.
-  return tensor_aten_ops::stack({s1, s2, s3}, canonical_dim);
+  return lazy_tensor_aten_ops::stack({s1, s2, s3}, canonical_dim);
 }
 
 LazyTensor KlDivBackward(const LazyTensor& grad_output, const LazyTensor& input,
                          const LazyTensor& target, ReductionMode reduction,
                          bool log_target) {
   auto input_shape_ref = input.shape();
-  LazyTensor expanded_grad_output = tensor_aten_ops::expand(
+  LazyTensor expanded_grad_output = lazy_tensor_aten_ops::expand(
       grad_output, lazy_tensors::util::ToVector<lazy_tensors::int64>(
                        input_shape_ref.get().dimensions()));
   LazyTensor grad_input;
   if (!log_target) {
-    grad_input = tensor_aten_ops::where(
-        tensor_aten_ops::gt(target, 0),
-        tensor_aten_ops::neg(
-            tensor_aten_ops::mul(target, expanded_grad_output)),
-        tensor_aten_ops::full_like(input, 0, input.GetDevice(), c10::nullopt));
+    grad_input = lazy_tensor_aten_ops::where(
+        lazy_tensor_aten_ops::gt(target, 0),
+        lazy_tensor_aten_ops::neg(
+            lazy_tensor_aten_ops::mul(target, expanded_grad_output)),
+        lazy_tensor_aten_ops::full_like(input, 0, input.GetDevice(),
+                                        c10::nullopt));
   } else {
-    grad_input = tensor_aten_ops::neg(tensor_aten_ops::mul(
-        tensor_aten_ops::exp(target), expanded_grad_output));
+    grad_input = lazy_tensor_aten_ops::neg(lazy_tensor_aten_ops::mul(
+        lazy_tensor_aten_ops::exp(target), expanded_grad_output));
   }
   if (reduction == ReductionMode::kMean) {
     LazyTensor dims_size = lazy_tensor_distributed::get_dimensions_size(
         input, Helpers::GetAllDimensions(input_shape_ref));
-    grad_input = tensor_aten_ops::div(grad_input, dims_size);
+    grad_input = lazy_tensor_aten_ops::div(grad_input, dims_size);
   }
   return grad_input;
 }
@@ -95,22 +99,22 @@ LazyTensor MakeMatrixWithDiagonal(const LazyTensor& input,
                                   lazy_tensors::int64 diagonal) {
   lazy_tensors::int64 size = input.shape().get().dimensions(0);
   LazyTensor identity =
-      tensor_aten_ops::eye(size, size, input.GetDevice(), input.dtype());
+      lazy_tensor_aten_ops::eye(size, size, input.GetDevice(), input.dtype());
   auto padding =
       diagonal >= 0
           ? std::vector<lazy_tensors::int64>{diagonal, 0, 0, diagonal}
           : std::vector<lazy_tensors::int64>{0, -diagonal, -diagonal, 0};
-  return tensor_aten_ops::constant_pad_nd(tensor_aten_ops::mul(identity, input),
-                                          padding, 0);
+  return lazy_tensor_aten_ops::constant_pad_nd(
+      lazy_tensor_aten_ops::mul(identity, input), padding, 0);
 }
 
 LazyTensor Select(const LazyTensor& input, lazy_tensors::int64 dim,
                   lazy_tensors::int64 index) {
   auto shape = input.shape();
   dim = Helpers::GetCanonicalDimensionIndex(dim, shape.get().rank());
-  LazyTensor result = tensor_aten_ops::narrow(input, dim, index, 1);
+  LazyTensor result = lazy_tensor_aten_ops::narrow(input, dim, index, 1);
   auto new_dims = Helpers::DropDimensions(shape.get().dimensions(), {dim});
-  return tensor_aten_ops::view(result, new_dims);
+  return lazy_tensor_aten_ops::view(result, new_dims);
 }
 
 LazyTensor EmbeddingDenseBackward(const LazyTensor& grad_output,
@@ -128,40 +132,41 @@ LazyTensor EmbeddingDenseBackward(const LazyTensor& grad_output,
   lazy_tensors::int64 numel =
       lazy_tensors::ShapeUtil::ElementsIn(indices_shape_ref.get());
   LazyTensor grad =
-      tensor_aten_ops::view(grad_output, {numel, grad_output.size(-1)});
+      lazy_tensor_aten_ops::view(grad_output, {numel, grad_output.size(-1)});
   LazyTensor grad_weight =
-      tensor_aten_ops::full({num_weights, grad_output.size(-1)}, 0,
-                            grad_output.GetDevice(), grad_output.dtype());
-  LazyTensor indices_rank1 = tensor_aten_ops::view(indices, {numel});
+      lazy_tensor_aten_ops::full({num_weights, grad_output.size(-1)}, 0,
+                                 grad_output.GetDevice(), grad_output.dtype());
+  LazyTensor indices_rank1 = lazy_tensor_aten_ops::view(indices, {numel});
   if (scale_grad_by_freq) {
     // Compute the histogram of index values.
-    LazyTensor counts = tensor_aten_ops::full(
+    LazyTensor counts = lazy_tensor_aten_ops::full(
         {num_weights}, 0, indices.GetDevice(), indices.dtype());
-    LazyTensor ones =
-        tensor_aten_ops::full({numel}, 1, indices.GetDevice(), indices.dtype());
-    tensor_aten_ops::index_put_(
+    LazyTensor ones = lazy_tensor_aten_ops::full(
+        {numel}, 1, indices.GetDevice(), indices.dtype());
+    lazy_tensor_aten_ops::index_put_(
         counts, counts, {indices_rank1}, /*start_dim=*/0,
         /*values=*/ones,
         /*accumulate=*/true, /*result_permutation=*/{0});
     LazyTensor grad_weights_scale =
-        tensor_aten_ops::index(counts, {indices_rank1}, 0);
+        lazy_tensor_aten_ops::index(counts, {indices_rank1}, 0);
     // Scale the value of the gradient by the histogram.
-    grad = tensor_aten_ops::div(
-        grad, tensor_aten_ops::unsqueeze(grad_weights_scale, 1));
+    grad = lazy_tensor_aten_ops::div(
+        grad, lazy_tensor_aten_ops::unsqueeze(grad_weights_scale, 1));
   }
   // Don't accumulate gradients for indices which are equal with the given
   // padding_idx.
-  LazyTensor skip_padding = tensor_aten_ops::unsqueeze(
-      tensor_aten_ops::ne(indices_rank1, static_cast<double>(padding_idx)), 1);
-  skip_padding = tensor_aten_ops::expand(
+  LazyTensor skip_padding = lazy_tensor_aten_ops::unsqueeze(
+      lazy_tensor_aten_ops::ne(indices_rank1, static_cast<double>(padding_idx)),
+      1);
+  skip_padding = lazy_tensor_aten_ops::expand(
       skip_padding, lazy_tensors::util::ToVector<lazy_tensors::int64>(
                         grad.shape().get().dimensions()));
   LazyTensor zero_grad =
-      tensor_aten_ops::full_like(grad, 0, grad.GetDevice(), grad.dtype());
-  return tensor_aten_ops::index_put(
+      lazy_tensor_aten_ops::full_like(grad, 0, grad.GetDevice(), grad.dtype());
+  return lazy_tensor_aten_ops::index_put(
       grad_weight, {indices_rank1},
       /*start_dim=*/0,
-      /*values=*/tensor_aten_ops::where(skip_padding, grad, zero_grad),
+      /*values=*/lazy_tensor_aten_ops::where(skip_padding, grad, zero_grad),
       /*accumulate=*/true,
       /*result_permutation=*/{0, 1});
 }
