@@ -24,10 +24,10 @@ do
 done
 lipo -i ${ZIP_DIR}/install/lib/*.a
 # copy the umbrella header and license
-cp ${PROJ_ROOT}/ios/LibTorch-Lite.h ${ZIP_DIR}/src/
+cp ${PROJ_ROOT}/ios/LibTorch.h ${ZIP_DIR}/src/
 cp ${PROJ_ROOT}/LICENSE ${ZIP_DIR}/
 # zip the library
-ZIPFILE="libtorch_lite_ios_1.10.0.zip"
+ZIPFILE="libtorch_ios_1.10.0.zip"
 cd ${ZIP_DIR}
 #for testing
 touch version.txt
