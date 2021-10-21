@@ -2,7 +2,25 @@
 
 #include <ATen/ATen.h>
 #include <ATen/native/quantized/affine_quantizer.h>
+#include <ATen/quantized/Quantizer.h>
 #include <c10/util/irange.h>
+
+static inline void run_checks_and_set_quantizer_(
+    at::Tensor& self,
+    const at::Tensor& src) {
+  if (self.is_quantized() && src.is_quantized()) {
+    TORCH_CHECK(
+        self.qscheme() == src.qscheme(),
+        "Quantized Copy only works with same qscheme");
+    TORCH_CHECK(self.scalar_type() == src.scalar_type());
+    at::set_quantizer_(self, src.quantizer());
+  }
+  if (!self.is_quantized() && src.is_quantized()) {
+    TORCH_CHECK(
+        false,
+        "Copying from quantized Tensor to non-quantized Tensor is not allowed, please use dequantize to get a float Tensor from a quantized Tensor");
+  }
+}
 
 namespace at {
 namespace native {
@@ -31,5 +49,28 @@ Tensor& quantized_copy_from_float_cpu_(Tensor& self, const Tensor& src) {
   });
   return self;
 }
+
+Tensor& copy_quantized_cpu_(
+    Tensor& self,
+    const Tensor& src,
+    bool non_blocking) {
+  if (!src.is_quantized()) {
+    return quantized_copy_from_float_cpu_(self, src);
+  }
+  run_checks_and_set_quantizer_(self, src);
+  return at::native::copy_(self, src, non_blocking);
+}
+
+Tensor& copy_quantized_cuda_xpu_(
+    Tensor& self,
+    const Tensor& src,
+    bool non_blocking) {
+  TORCH_CHECK(
+      src.is_quantized(),
+      "Copy is not supported from a non-quantized tensor to a quantized tensor");
+  run_checks_and_set_quantizer_(self, src);
+  return at::native::copy_(self, src, non_blocking);
+}
+
 } // namespace native
 } // namespace at
