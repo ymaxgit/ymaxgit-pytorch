@@ -2404,12 +2404,6 @@ std::tuple<LazyTensor, LazyTensor> var_mean(
                          input.CreateFrom(torch::lazy::Value(node, 1)));
 }
 
-void zero_(LazyTensor& input) {
-  torch::lazy::Value constant =
-      LazyTensor::GetIrValueForScalar(0.0, input.shape(), input.GetDevice());
-  input.SetInPlaceIrValue(std::move(constant));
-}
-
 LazyTensor where(const LazyTensor& condition, const LazyTensor& input,
                  const LazyTensor& other) {
   return input.CreateFrom(ir::ops::Where(
