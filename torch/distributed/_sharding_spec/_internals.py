@@ -1,5 +1,8 @@
+import collections.abc
 from typing import List, Union
 from dataclasses import dataclass
+from torch.distributed import distributed_c10d
+from torch.distributed import rpc
 from torch.distributed.remote_device import _remote_device
 
 import torch
@@ -150,3 +153,43 @@ def get_chunked_dim_size(dim_size, split_size, idx):
         An int indicating the dim size of the chunk.
     """
     return min(dim_size, split_size * (idx + 1)) - split_size * idx
+
+def flatten_tensor_size(size) -> List[int]:
+    """
+    Checks if tensor size is valid, then flatten/return the list of ints.
+
+    """
+    if len(size) == 1 and isinstance(size[0], collections.abc.Sequence):
+        dims = list(*size)
+    else:
+        dims = list(size)
+
+    for dim in dims:
+        if not isinstance(dim, int):
+            raise TypeError(f'size has to be a sequence of ints, found: {dims}')
+
+    return dims
+
+def _parse_and_validate_remote_device(pg: distributed_c10d.ProcessGroup, remote_device: torch.distributed._remote_device):
+
+    worker_name = remote_device.worker_name()
+    rank = remote_device.rank()
+    device = remote_device.device()
+
+    # Validate rank, skip validation if rank is not part of process group.
+    if not distributed_c10d._rank_not_in_group(pg):
+        if rank is not None and (rank < 0 or rank >= distributed_c10d.get_world_size(pg)):
+            raise ValueError(f'Invalid rank: {rank}')
+
+    if worker_name is not None:
+        if not rpc._is_current_rpc_agent_set():
+            raise RuntimeError(f'RPC framework needs to be initialized for using worker names: {worker_name}')
+
+        workers = rpc._get_current_rpc_agent().get_worker_infos()
+        for worker in workers:
+            if worker.name == worker_name:
+                return worker.id, device
+
+        raise ValueError(f'Invalid worker name: {worker_name}')
+
+    return rank, device
