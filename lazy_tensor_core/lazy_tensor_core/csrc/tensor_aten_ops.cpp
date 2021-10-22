@@ -1011,12 +1011,6 @@ void eye_out(LazyTensor& out, lazy_tensors::int64 lines,
                                                &out.GetDevice())));
 }
 
-void fill_(LazyTensor& input, const at::Scalar& value) {
-  torch::lazy::Value constant =
-      LazyTensor::GetIrValueForScalar(value, input.shape(), input.GetDevice());
-  input.SetInPlaceIrValue(std::move(constant));
-}
-
 LazyTensor flip(const LazyTensor& input,
                 lazy_tensors::Span<const lazy_tensors::int64> dims) {
   auto dimensions =

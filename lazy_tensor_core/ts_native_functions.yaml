@@ -16,6 +16,7 @@ full_codegen:
   - clamp
   - gelu
   - gelu_backward
+  - fill_.Scalar
   - log2
   - mean
   - mm
@@ -51,7 +52,7 @@ supported:
   - empty.memory_format
   - empty_strided
   - expand
-  - fill_.Scalar
+  # - fill_.Scalar
   - leaky_relu
   - leaky_relu_backward
   - mul.Tensor

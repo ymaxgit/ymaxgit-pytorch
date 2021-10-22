@@ -293,9 +293,6 @@ LazyTensor eye(lazy_tensors::int64 lines, lazy_tensors::int64 cols,
 void eye_out(LazyTensor& out, lazy_tensors::int64 lines,
              lazy_tensors::int64 cols);
 
-// Fills the input with the given value.
-void fill_(LazyTensor& input, const at::Scalar& value);
-
 // Flips (reverses) the values in the dimensions of the input tensor.
 LazyTensor flip(const LazyTensor& input,
                 lazy_tensors::Span<const lazy_tensors::int64> dims);
