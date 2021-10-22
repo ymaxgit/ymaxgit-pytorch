@@ -245,19 +245,28 @@ class TestOptim(TestCase):
             scheduler_constructors
         )
 
-    def _test_complex_optimizer(self, optimizer_constructor):
-        complex_param = torch.randn(5, 5, dtype=torch.complex64, requires_grad=True)
-        real_param = torch.view_as_real(complex_param).detach().clone().requires_grad_()
+    def _test_complex_optimizer(self, optimizer_constructor, sparse=False, expect_error=False):
+        real_param = torch.randn(10, 2, requires_grad=True)
+        complex_param = torch.view_as_complex(real_param).detach().clone().requires_grad_()
+
         complex_opt = optimizer_constructor(complex_param)
         real_opt = optimizer_constructor(real_param)
 
         for i in range(3):
-            complex_param.grad = torch.randn_like(complex_param)
-            real_param.grad = torch.view_as_real(complex_param.grad)
+            if sparse:
+                b = torch.randn(10, 2).relu()
+                real_grad = b.to_sparse()
+                c_grad = torch.view_as_complex(b).to_sparse()
+
+                complex_param.grad = c_grad
+                real_param.grad = real_grad
+
+            else:
+                complex_param.grad = torch.randn_like(complex_param)
+                real_param.grad = torch.view_as_real(complex_param.grad)
 
             complex_opt.step()
             real_opt.step()
-
             self.assertEqual(torch.view_as_real(complex_param), real_param)
 
     def _build_params_dict(self, weight, bias, **kwargs):
@@ -640,6 +649,16 @@ class TestOptim(TestCase):
                     [param], lr=1e-1, initial_accumulator_value=0.1
                 )
             )
+            self._test_complex_optimizer(
+                lambda param: optimizer(
+                    [param], lr=1e-1, initial_accumulator_value=0.1, weight_decay=1
+                )
+            )
+            with self.assertRaisesRegex(RuntimeError, "Complex gradients are not supported in Adagrad with sparse parameters"):
+                self._test_complex_optimizer(
+                    lambda param: optimizer([param], lr=1e-1),
+                    sparse=True,
+                )
 
     def test_adamax(self):
         for optimizer in [optim.Adamax, optim_mt.Adamax]:
