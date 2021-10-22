@@ -22,13 +22,14 @@ class Shape {
 
   Shape(at::ScalarType element_type, lazy_tensors::Span<const int64> dimensions);
 
-  Shape(PrimitiveType element_type, lazy_tensors::Span<const int64> dimensions)
-      : element_type_(element_type),
-        dimensions_(dimensions.begin(), dimensions.end()),
-        dynamic_dimensions_(dimensions.size(), false) {}
+  // Shape(PrimitiveType element_type, lazy_tensors::Span<const int64> dimensions)
+  //     : element_type_(element_type),
+  //       dimensions_(dimensions.begin(), dimensions.end()),
+  //       dynamic_dimensions_(dimensions.size(), false) {}
 
   Shape(lazy_tensors::Span<const Shape> element_shapes)
-      : element_type_(PrimitiveType::TUPLE),
+      : is_tuple_(true),
+        element_type_(PrimitiveType::TUPLE),
         element_shapes_(element_shapes.begin(), element_shapes.end()) {}
 
   Shape(const client::ShapeData& shape_data)
@@ -50,9 +51,9 @@ class Shape {
 
   int64 rank() const { return dimensions_.size(); }
 
-  bool IsArray() const { return primitive_util::IsArrayType(element_type()); }
+  bool IsArray() const { return false; }
 
-  bool IsTuple() const { return element_type_ == PrimitiveType::TUPLE; }
+  bool IsTuple() const { return is_tuple_; }
 
   bool is_dynamic_dimension(int dimension) const {
     return dynamic_dimensions_.at(dimension);
@@ -71,7 +72,7 @@ class Shape {
   void DeleteDimension(int64 dim_to_delete);
 
   PrimitiveType element_type() const { return element_type_; }
-  void set_element_type(PrimitiveType value) { element_type_ = value; }
+  void set_element_type(at::ScalarType value);
 
   // Methods for accessing the dimensions array.
   int dimensions_size() const { return dimensions_.size(); }
@@ -118,6 +119,7 @@ class Shape {
   static void SetDynamicMode();
 
  private:
+  bool is_tuple_;
   PrimitiveType element_type_;
   std::vector<int64> dimensions_;
   std::vector<bool> dynamic_dimensions_;
