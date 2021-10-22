@@ -42,7 +42,7 @@ std::vector<const torch::lazy::Node*> Util::ComputePostOrder(const torch::lazy::
 }
 
 std::vector<const torch::lazy::Node*> Util::ComputePostOrder(
-    lazy_tensors::Span<const torch::lazy::Node* const> nodes, EmissionMap* emap) {
+    const std::vector<const torch::lazy::Node*>& nodes, EmissionMap* emap) {
   std::vector<const torch::lazy::Node*> post_order;
   for (auto node : nodes) {
     auto node_post_order = ComputePostOrder(node, emap);
@@ -53,12 +53,12 @@ std::vector<const torch::lazy::Node*> Util::ComputePostOrder(
 }
 
 std::vector<const torch::lazy::Node*> Util::ComputePostOrder(
-    lazy_tensors::Span<const torch::lazy::Node* const> nodes) {
+    const std::vector<const torch::lazy::Node*>& nodes) {
   EmissionMap emap;
   return ComputePostOrder(nodes, &emap);
 }
 
-size_t Util::GetGraphSize(lazy_tensors::Span<const torch::lazy::Node* const> nodes) {
+size_t Util::GetGraphSize(const std::vector<const torch::lazy::Node*>& nodes) {
   std::vector<const torch::lazy::Node*> post_order = ComputePostOrder(nodes);
   return post_order.size();
 }

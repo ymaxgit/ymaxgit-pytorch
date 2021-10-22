@@ -69,8 +69,8 @@ void PrepareToExit() {
 
 std::string GetTensorsDump(
     const std::vector<at::Tensor>& tensors,
-    const std::function<std::string(lazy_tensors::Span<const torch::lazy::Node* const>)>&
-        coverter) {
+    const std::function<std::string(
+        const std::vector<const torch::lazy::Node*>& nodes)>& coverter) {
   std::vector<const torch::lazy::Node*> nodes;
   std::vector<torch::lazy::Value> values;
   for (auto& tensor : tensors) {
@@ -410,20 +410,22 @@ void InitLtcModuleBindings(py::module m) {
                        lazy_tensors::int64 output_size) {
     return LtcNms(boxes, scores, score_threshold, iou_threshold, output_size);
   });
-  m.def("_get_ltc_tensors_dot",
-        [](const std::vector<at::Tensor>& tensors) -> std::string {
-          auto coverter = [](lazy_tensors::Span<const torch::lazy::Node* const> nodes) {
-            return ir::DumpUtil::ToDot(nodes);
-          };
-          return GetTensorsDump(tensors, coverter);
-        });
-  m.def("_get_ltc_tensors_text",
-        [](const std::vector<at::Tensor>& tensors) -> std::string {
-          auto coverter = [](lazy_tensors::Span<const torch::lazy::Node* const> nodes) {
-            return ir::DumpUtil::ToText(nodes);
-          };
-          return GetTensorsDump(tensors, coverter);
-        });
+  m.def(
+      "_get_ltc_tensors_dot",
+      [](const std::vector<at::Tensor>& tensors) -> std::string {
+        auto coverter = [](const std::vector<const torch::lazy::Node*>& nodes) {
+          return ir::DumpUtil::ToDot(nodes);
+        };
+        return GetTensorsDump(tensors, coverter);
+      });
+  m.def(
+      "_get_ltc_tensors_text",
+      [](const std::vector<at::Tensor>& tensors) -> std::string {
+        auto coverter = [](const std::vector<const torch::lazy::Node*>& nodes) {
+          return ir::DumpUtil::ToText(nodes);
+        };
+        return GetTensorsDump(tensors, coverter);
+      });
   m.def("_get_ltc_tensors_backend",
         [](const std::vector<at::Tensor>& tensors) -> std::string {
           return GetTensorsBackendGraph(tensors);

@@ -30,18 +30,17 @@ class Util {
       const torch::lazy::Node* node, EmissionMap* emap);
 
   static std::vector<const torch::lazy::Node*> ComputePostOrder(
-      lazy_tensors::Span<const torch::lazy::Node* const> nodes,
-      EmissionMap* emap);
+      const std::vector<const torch::lazy::Node*>& nodes, EmissionMap* emap);
 
   // Same as above, but computes the post order on the set of nodes specified as
   // argument.
   static std::vector<const torch::lazy::Node*> ComputePostOrder(
-      lazy_tensors::Span<const torch::lazy::Node* const> nodes);
+      const std::vector<const torch::lazy::Node*>& nodes);
 
   // Retrieves the number of nodes within the graph whose sink are passed in the
   // nodes argument.
   static size_t GetGraphSize(
-      lazy_tensors::Span<const torch::lazy::Node* const> nodes);
+      const std::vector<const torch::lazy::Node*>& nodes);
 };
 
 }  // namespace ir
