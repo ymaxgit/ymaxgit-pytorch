@@ -35,18 +35,21 @@ static bool is_functorch_wrapped_tensor(const Tensor& tensor) {
   return !(key_set & kFunctorchWrappedTensors).empty();
 }
 
-bool resize_output(const Tensor& output, IntArrayRef shape) {
+bool resize_output(const Tensor& output, IntArrayRef shape, c10::optional<IntArrayRef> strides) {
   if (resize_output_check(output, shape)) {
-    // avoid a redispatch for cpu and cuda.
-    // TODO: when resize_cuda_ is re-written to be unified with resize_,
-    // we can provide the same benefit for cuda.
-    //
     // TODO(#61485): functorch wrapped tensors should not go through the
     // fast path. This is a hack, longer term solutions are in the issue
     if (output.is_cpu() && !is_functorch_wrapped_tensor(output)) {
-      at::native::resize_(output, shape);
+      at::native::resize_template<&resize_impl_tryreuse_<&maybe_resize_storage_cpu>>(
+          output, shape, strides, c10::nullopt, true);
     } else {
-      output.resize_(shape);
+      // We need to dispatch to different functions based on whether
+      // `strides` is given or not.
+      if (strides.has_value()) {
+        output.resize_(shape, strides.value());
+      } else {
+        output.resize_(shape);
+      }
     }
     return true;
   } else {
@@ -122,25 +125,120 @@ const Tensor& resize_as_(
   return result;
 }
 
+uint64_t select_storage_size_default(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride) {
+  int64_t storage_size = 1;
+  if (stride) {
+    self->set_sizes_and_strides(size, *stride);
+    // NB: storage size can be different from numel.
+    storage_size = storage_size_for(size, *stride);
+  } else {
+    self->set_sizes_contiguous(size);
+    storage_size = self->numel();
+  }
+  return storage_size;
+}
+
+uint64_t select_storage_size_tryreuse(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride) {
+  const size_t storage_nbytes = self->storage().nbytes();
+
+  // Defines how we are allocating/reusing memory.
+  // CONTIGUOUS has lower priority than STRIDED.
+  enum Strategy { CONTIGUOUS = 0, STRIDED, UNDEF };
+  // Checks that will be used to decide what strategy we will use
+  struct Checks {
+    bool may_reuse;
+    bool did_overflow;
+  };
+
+  auto check_allocatable = [&](const uint64_t storage_size) -> Checks {
+    auto byte_size = (storage_size + self->storage_offset()) * self->dtype().itemsize();
+    auto bytes = static_cast<size_t>(byte_size);
+    return Checks{bytes <= storage_nbytes, overflows<size_t>(byte_size)};
+  };
+
+  // Keep track of which strategy we are going to use for reusing
+  // the storage (if that's possible).
+  Strategy selected = UNDEF;
+  // If we can't, we pick an allocation strategy.
+  Strategy fallback = UNDEF;
+
+  std::array<uint64_t, 2> storage_size{0, 0};
+
+  // Computation of contiguous storage size is necessary, here.
+  // Calling 'self->set_size_contiguous' already does it, but we
+  // still don't know at this point.
+  storage_size[CONTIGUOUS] = 1;
+  for (auto s : size) {
+    storage_size[CONTIGUOUS] *= s;
+  }
+
+  auto c = check_allocatable(storage_size[CONTIGUOUS]);
+  selected = (!c.did_overflow && c.may_reuse) ? CONTIGUOUS : selected;
+  fallback = !c.did_overflow ? CONTIGUOUS : fallback;
+
+  // Use STRIDED strategy only if we have strides.
+  if (stride.has_value()) {
+    storage_size[STRIDED] = storage_size_for(size, stride.value());
+    auto c = check_allocatable(storage_size[STRIDED]);
+    selected = (!c.did_overflow && c.may_reuse) ? STRIDED : selected;
+    fallback = !c.did_overflow ? STRIDED : fallback;
+  }
+
+  if (selected == UNDEF) {
+    // If both `selected` and `alloc_strategy` are `UNDEF`, it means
+    // that we've overflowed on all strategies.
+    TORCH_CHECK(
+        fallback != UNDEF,
+        "Requested storage size (",
+        storage_size[CONTIGUOUS],
+        ") cannot be represented as a size_t");
+    selected = fallback;
+  }
+
+  switch (selected) {
+    case Strategy::STRIDED:
+      self->set_sizes_and_strides(size, stride.value());
+      break;
+    case Strategy::CONTIGUOUS:
+      self->set_sizes_contiguous(size);
+      break;
+    default:
+      break;
+  }
+
+  return storage_size[selected];
+}
+
+TensorImpl* resize_impl_cpu_(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride,
+    bool resize_storage) {
+  return resize_impl_template_<
+      &maybe_resize_storage_cpu,
+      &select_storage_size_default>(self, size, stride);
+}
+
 const Tensor& resize_(
     const Tensor& self,
     IntArrayRef size,
     c10::optional<MemoryFormat> optional_memory_format) {
-  if (self.has_names()) {
-    return resize_named_tensor_(self, size, optional_memory_format);
-  }
-  auto* self_ = self.unsafeGetTensorImpl();
-  // NOLINTNEXTLINE(bugprone-argument-comment)
-  resize_impl_cpu_(self_, size, /*strides=*/c10::nullopt);
-  if (optional_memory_format.has_value()) {
-    auto memory_format =
-        optional_memory_format.value();
-    TORCH_CHECK(
-        memory_format != MemoryFormat::Preserve,
-        "Unsupported memory format",
-        memory_format);
-    self_->empty_tensor_restride(memory_format);
-  }
+  resize_template<&resize_impl_cpu_>(self, size, c10::nullopt, optional_memory_format, true);
+  return self;
+}
+
+const Tensor& resize_with_strides_(
+    const Tensor& self,
+    IntArrayRef size,
+    IntArrayRef strides) {
+  resize_template<&resize_impl_tryreuse_<&maybe_resize_storage_cpu>>(
+      self, size, strides, c10::nullopt, true);
   return self;
 }
 

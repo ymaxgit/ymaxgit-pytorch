@@ -1,13 +1,68 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/native/DispatchStub.h>
 #include <ATen/native/ResizeCommon.h>
 #include <ATen/TensorUtils.h>
 
 #include <c10/core/CPUAllocator.h>
 
-
 namespace at { namespace native {
+
+using ResizeImplFn = TensorImpl*(*)(TensorImpl*, IntArrayRef, c10::optional<IntArrayRef>, bool);
+using SelectSizeFn = uint64_t(*)(TensorImpl*, IntArrayRef, c10::optional<IntArrayRef>);
+using MaybeResizeFn = void(*)(TensorImpl*, uint64_t);
+
+// Template implementation for `resize_`.
+// Implementors should call this function with the core
+// resizing implementation as template parameter.
+template <ResizeImplFn Impl>
+void resize_template(
+    const Tensor& self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> strides,
+    c10::optional<MemoryFormat> optional_memory_format,
+    bool resize_storage) {
+  TORCH_INTERNAL_ASSERT(!(strides.has_value() && optional_memory_format.has_value()));
+  if (self.has_names()) {
+    resize_named_tensor_(self, size, optional_memory_format);
+    return;
+  }
+  auto* self_ = self.unsafeGetTensorImpl();
+  Impl(self_, size, strides, resize_storage);
+  if (optional_memory_format.has_value()) {
+    auto memory_format =
+        optional_memory_format.value();
+    TORCH_CHECK(
+        memory_format != MemoryFormat::Preserve,
+        "Unsupported memory format",
+        memory_format);
+    self_->empty_tensor_restride(memory_format);
+  }
+}
+
+// Core logic for resize implementations:
+// 1. Short-circuit if we are not really changing anything
+// 2. Select the new storage size
+// 3. Actually resize (allocation may happen)
+template <MaybeResizeFn MaybeResize, SelectSizeFn SelectFn>
+TensorImpl* resize_impl_template_(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride,
+    bool resize_storage = true) {
+  if (self->sizes() == size && (!stride || self->strides() == stride)) {
+    return self;
+  }
+
+  uint64_t storage_size = SelectFn(self, size, stride);
+
+  if (resize_storage) {
+    MaybeResize(self, storage_size);
+  }
+
+  return self;
+}
 
 // TODO: make all operations that resize given outputs use this function
 //   for consistency and maintainability.
@@ -21,7 +76,10 @@ namespace at { namespace native {
 //   needs resizing
 // NOTE: In the future the warning will become an error
 // Returns a bool saying whether or not the resize actually happened or not
-TORCH_API bool resize_output(const Tensor& output, IntArrayRef shape);
+TORCH_API bool resize_output(
+    const Tensor& output,
+    IntArrayRef shape,
+    c10::optional<IntArrayRef> strides = c10::nullopt);
 
 // Utility for resize_output
 //  Returns a bool saying resize should happen or not and
@@ -59,29 +117,37 @@ static inline void maybe_resize_storage_cpu(TensorImpl* self, uint64_t new_size)
   }
 }
 
-inline TensorImpl* resize_impl_cpu_(
+uint64_t select_storage_size_default(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride);
+
+TensorImpl* resize_impl_cpu_(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride,
+    bool resize_storage = true);
+
+// Try to reuse the storage by ignoring the given strides, if
+// necessary. There are 3 cases:
+// 1. Using the requested size and strides fit inside the existing
+//    storage -> no allocation needed!
+// 2. It only fits in the existing storage if we don't use the
+//    requested strides -> no allocation needed!
+// 3. We have to allocate memory -> allocation needed!
+uint64_t select_storage_size_tryreuse(
+    TensorImpl* self,
+    IntArrayRef size,
+    c10::optional<IntArrayRef> stride);
+
+template <MaybeResizeFn MaybeFn>
+TensorImpl* resize_impl_tryreuse_(
     TensorImpl* self,
     IntArrayRef size,
     c10::optional<IntArrayRef> stride,
     bool resize_storage = true) {
-  if (self->sizes() == size && (!stride || self->strides() == stride)) {
-    return self;
-  }
-
-  int64_t storage_size = 1;
-  if (stride) {
-    self->set_sizes_and_strides(size, *stride);
-    // NB: storage size can be different from numel.
-    storage_size = storage_size_for(size, *stride);
-  } else {
-    self->set_sizes_contiguous(size);
-    storage_size = self->numel();
-  }
-  if (resize_storage) {
-    maybe_resize_storage_cpu(self, storage_size);
-  }
-
-  return self;
+  return resize_impl_template_<MaybeFn, &select_storage_size_tryreuse>(
+      self, size, stride);
 }
 
 static inline void checkInBoundsForStorage(
