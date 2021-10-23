@@ -8,7 +8,6 @@
 #include "lazy_tensors/computation_client/client_data.h"
 #include "lazy_tensors/computation_client/debug_macros.h"
 #include "lazy_tensors/layout.h"
-#include "lazy_tensors/primitive_util.h"
 #include "lazy_tensors/span.h"
 #include "lazy_tensors/str_cat.h"
 #include "lazy_tensors/str_join.h"
@@ -45,7 +44,7 @@ class Shape {
   }
 
   std::string ToString(bool print_layout = false) const {
-    return lazy_tensors::StrCat(PrimitiveTypeName(element_type_), "[",
+    return lazy_tensors::StrCat(toString(at_element_type_), "[",
                                 c10::Join(",", dimensions_), "]");
   }
 
@@ -72,6 +71,7 @@ class Shape {
   void DeleteDimension(int64 dim_to_delete);
 
   PrimitiveType element_type() const { return element_type_; }
+  c10::ScalarType at_element_type() const { return at_element_type_; }
   void set_element_type(at::ScalarType value);
 
   // Methods for accessing the dimensions array.
@@ -121,6 +121,7 @@ class Shape {
  private:
   bool is_tuple_;
   PrimitiveType element_type_;
+  c10::ScalarType at_element_type_;
   std::vector<int64> dimensions_;
   std::vector<bool> dynamic_dimensions_;
   std::vector<Shape> element_shapes_;

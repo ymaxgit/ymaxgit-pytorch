@@ -165,7 +165,7 @@ class ShapeUtil {
   }
 
   static bool ElementIsIntegral(const Shape& shape) {
-    return primitive_util::IsIntegralType(shape.element_type());
+    return isIntegralType(shape.at_element_type(), /* include_bool */ true);
   }
 
   // Variants of ForEach(Mutable)Subshape which propagate Status from the

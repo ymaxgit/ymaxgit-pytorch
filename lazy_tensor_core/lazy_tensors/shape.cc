@@ -10,6 +10,7 @@ Shape::Shape(at::ScalarType element_type,
           /*device=*/nullptr)),  // TODO(whc) used what was available now, but
                                  // want to move to using aten dtype not
                                  // device-specific dtype
+      at_element_type_(element_type),
       dimensions_(dimensions.begin(), dimensions.end()),
       dynamic_dimensions_(dimensions.size(), false) {}
 
@@ -32,7 +33,8 @@ void Shape::DeleteDimension(int64 dim_to_delete) {
 }
 
 void Shape::set_element_type(at::ScalarType value) {
-  element_type_ = torch_lazy_tensors::MakeLtcPrimitiveType(value, /*device=*/nullptr);
+  element_type_ =
+      torch_lazy_tensors::MakeLtcPrimitiveType(value, /*device=*/nullptr);
 }
 
 bool Shape::IsDynamicMode() { return dynamic_mode_.load(); }
